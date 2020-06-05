@@ -60,6 +60,10 @@ def get_args_parser():
     parser.add_argument('--masks', action='store_true',
                         help="Train segmentation head if the flag is provided")
 
+    # * Keypoints
+    parser.add_argument('--keypoints', action='store_true',
+                        help="Train keypoints head if the flag is provided")
+
     # Loss
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
@@ -83,6 +87,7 @@ def get_args_parser():
     parser.add_argument('--coco_path', type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
+    parser.add_argument('--coco_mode', type=str, default='instances')
 
     parser.add_argument('--output-dir', default='',
                         help='path where to save, empty for no saving')

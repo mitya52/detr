@@ -3,6 +3,7 @@
 Transforms and data augmentation for both image + bbox.
 """
 import random
+import numpy as np
 
 import PIL
 import torch
@@ -40,6 +41,15 @@ def crop(image, target, region):
         target['masks'] = target['masks'][:, i:i + h, j:j + w]
         fields.append("masks")
 
+    if "keypoints" in target:
+        keypoints = target["keypoints"]
+        keypoints[..., :2] = keypoints[..., :2] - torch.as_tensor([j, i])
+        keypoints[keypoints[..., 0] < 0] = 0
+        keypoints[keypoints[..., 1] < 0] = 0
+        keypoints[keypoints[..., 0] >= w] = 0
+        keypoints[keypoints[..., 1] >= h] = 0
+        fields.append("keypoints")
+
     # remove elements for which the boxes or masks that have zero area
     if "boxes" in target or "masks" in target:
         # favor boxes selection when defining which elements to keep
@@ -56,7 +66,7 @@ def crop(image, target, region):
     return cropped_image, target
 
 
-def hflip(image, target):
+def hflip(image, target, joint_pairs):
     flipped_image = F.hflip(image)
 
     w, h = image.size
@@ -69,6 +79,15 @@ def hflip(image, target):
 
     if "masks" in target:
         target['masks'] = target['masks'].flip(-1)
+
+    if "keypoints" in target:
+        keypoints = target['keypoints']
+        for pair in joint_pairs:
+            keypoints[..., pair, :] = keypoints[..., pair[::-1], :]
+        indexes = keypoints[..., 2] > 0
+        keypoints = keypoints[indexes]
+        keypoints[..., 0] = w - keypoints[..., 0] - 1
+        target['keypoints'][indexes] = keypoints
 
     return flipped_image, target
 
@@ -129,6 +148,18 @@ def resize(image, target, size, max_size=None):
         target['masks'] = interpolate(
             target['masks'][:, None].float(), size, mode="nearest")[:, 0] > 0.5
 
+    if "area" in target:
+        area = target["area"]
+        scaled_area = area * (ratio_width * ratio_height)
+        target["area"] = scaled_area
+
+    if "keypoints" in target:
+        keypoints = target['keypoints']
+        indexes = keypoints[..., 2] > 0
+        keypoints = keypoints[indexes]
+        keypoints[..., :2] = keypoints[..., :2] * torch.as_tensor([ratio_width, ratio_height])
+        target['keypoints'][indexes] = keypoints
+
     return rescaled_image, target
 
 
@@ -143,6 +174,31 @@ def pad(image, target, padding):
     if "masks" in target:
         target['masks'] = torch.nn.functional.pad(target['masks'], (0, padding[0], 0, padding[1]))
     return padded_image, target
+
+
+def fill_ignore(image, target, color):
+    assert "keypoints" in target and "masks" in target
+
+    fields = ["labels", "area", "iscrowd", "keypoints", "masks"]
+
+    if "boxes" in target:
+        fields.append("boxes")
+
+    keep = (target["iscrowd"] == 0) & (target["keypoints"][..., 2].sum(axis=-1) > 0)
+
+    image = F.to_tensor(image)
+    ignore_mask = torch.zeros_like(image)[0] > 0
+    for mask in target['masks'][torch.logical_not(keep)]:
+        ignore_mask = ignore_mask | (mask > 0)
+
+    image[:, ignore_mask] = color
+
+    # TODO(mitya52): remove keypoints under mask
+
+    for field in fields:
+        target[field] = target[field][keep]
+
+    return F.to_pil_image(image), target
 
 
 class RandomCrop(object):
@@ -179,12 +235,13 @@ class CenterCrop(object):
 
 
 class RandomHorizontalFlip(object):
-    def __init__(self, p=0.5):
+    def __init__(self, joint_pairs, p=0.5):
         self.p = p
+        self.joint_pairs = joint_pairs
 
     def __call__(self, img, target):
         if random.random() < self.p:
-            return hflip(img, target)
+            return hflip(img, target, self.joint_pairs)
         return img, target
 
 
@@ -237,6 +294,13 @@ class RandomErasing(object):
 
     def __call__(self, img, target):
         return self.eraser(img), target
+
+
+class FillIgnore(object):
+
+    def __call__(self, image, target):
+        target = target.copy()
+        return fill_ignore(image, target, color=255)
 
 
 class Normalize(object):

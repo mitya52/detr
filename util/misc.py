@@ -409,8 +409,8 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
                 input, size, scale_factor, mode, align_corners
             )
 
-        output_shape = _output_size(2, input, size, scale_factor)
-        output_shape = list(input.shape[:-2]) + list(output_shape)
+        assert scale_factor is None
+        output_shape = list(input.shape[:-2]) + list(size)
         return _new_empty_tensor(input, output_shape)
     else:
         return torchvision.ops.misc.interpolate(input, size, scale_factor, mode, align_corners)

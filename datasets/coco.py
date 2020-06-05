@@ -14,11 +14,12 @@ from pycocotools import mask as coco_mask
 import datasets.transforms as T
 
 
+# TODO(mitya52): may be we need to
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
+    def __init__(self, img_folder, ann_file, transforms, return_masks, return_keypoints):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
-        self.prepare = ConvertCocoPolysToMask(return_masks)
+        self.prepare = ConvertCocoPolysToMask(return_masks, return_keypoints)
 
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
@@ -48,8 +49,12 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 
 
 class ConvertCocoPolysToMask(object):
-    def __init__(self, return_masks=False):
+
+    coco_keypoints_num = 17
+
+    def __init__(self, return_masks=False, return_keypoints=False):
         self.return_masks = return_masks
+        self.return_keypoints = return_keypoints
 
     def __call__(self, image, target):
         w, h = image.size
@@ -59,7 +64,9 @@ class ConvertCocoPolysToMask(object):
 
         anno = target["annotations"]
 
-        anno = [obj for obj in anno if 'iscrowd' not in obj or obj['iscrowd'] == 0]
+        # TODO(mitya52): refactor keypoints behaviour
+        if not self.return_keypoints:
+            anno = [obj for obj in anno if 'iscrowd' not in obj or obj['iscrowd'] == 0]
 
         boxes = [obj["bbox"] for obj in anno]
         # guard against no boxes via resizing
@@ -75,20 +82,16 @@ class ConvertCocoPolysToMask(object):
             segmentations = [obj["segmentation"] for obj in anno]
             masks = convert_coco_poly_to_mask(segmentations, h, w)
 
-        keypoints = None
-        if anno and "keypoints" in anno[0]:
+        if self.return_keypoints:
             keypoints = [obj["keypoints"] for obj in anno]
-            keypoints = torch.as_tensor(keypoints, dtype=torch.float32)
-            num_keypoints = keypoints.shape[0]
-            if num_keypoints:
-                keypoints = keypoints.view(num_keypoints, -1, 3)
+            keypoints = torch.as_tensor(keypoints, dtype=torch.float32).view(-1, self.coco_keypoints_num, 3)
 
         keep = (boxes[:, 3] > boxes[:, 1]) & (boxes[:, 2] > boxes[:, 0])
         boxes = boxes[keep]
         classes = classes[keep]
         if self.return_masks:
             masks = masks[keep]
-        if keypoints is not None:
+        if self.return_keypoints:
             keypoints = keypoints[keep]
 
         target = {}
@@ -97,7 +100,7 @@ class ConvertCocoPolysToMask(object):
         if self.return_masks:
             target["masks"] = masks
         target["image_id"] = image_id
-        if keypoints is not None:
+        if self.return_keypoints:
             target["keypoints"] = keypoints
 
         # for conversion to coco api
@@ -116,14 +119,16 @@ def make_coco_transforms(image_set):
 
     normalize = T.Compose([
         T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
 
     scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+    joint_pairs = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14], [15, 16]]
 
     if image_set == 'train':
         return T.Compose([
-            T.RandomHorizontalFlip(),
+            T.FillIgnore(),
+            T.RandomHorizontalFlip(joint_pairs=joint_pairs),
             T.RandomSelect(
                 T.RandomResize(scales, max_size=1333),
                 T.Compose([
@@ -147,12 +152,17 @@ def make_coco_transforms(image_set):
 def build(image_set, args):
     root = Path(args.coco_path)
     assert root.exists(), f'provided COCO path {root} does not exist'
-    mode = 'instances'
+    mode = args.coco_mode
     PATHS = {
         "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
         "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
     }
 
     img_folder, ann_file = PATHS[image_set]
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
+    dataset = CocoDetection(
+        img_folder,
+        ann_file,
+        transforms=make_coco_transforms(image_set),
+        return_masks=args.masks or args.keypoints,
+        return_keypoints=args.keypoints)
     return dataset
