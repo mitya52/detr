@@ -16,7 +16,7 @@ from datasets.panoptic_eval import PanopticEvaluator
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0):
+                    device: torch.device, epoch: int, max_norm: float = 0, debug: bool = False):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -26,6 +26,36 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     print_freq = 10
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+        if debug:
+            import cv2
+            import numpy as np
+
+            img = samples.tensors[0].numpy().transpose((1, 2, 0))
+            img = np.ascontiguousarray(img * 255, dtype=np.uint8)
+            img_size = targets[0]['size']
+            print(targets[0].keys())
+            for bbox in targets[0].get("boxes", []):
+                cx, cy, w, h = bbox.numpy()
+                cx, cy, w, h = map(int, (cx * img_size[1], cy * img_size[0], w * img_size[1], h * img_size[0]))
+                cv2.rectangle(img, (cx - w // 2, cy - h // 2), (cx + w // 2, cy + h // 2), (255, 255, 255))
+            for keypoints in targets[0].get("keypoints", []):
+                for x, y, v in keypoints:
+                    if v > 0:
+                        x, y = map(int, (x, y))
+                        cv2.circle(img, (x, y), radius=3, color=(255, 255, 255), thickness=-1)
+            for mask in targets[0].get("masks", []):
+                alpha = 0.5
+                mask = mask.numpy()
+                mask_h, mask_w = mask.shape[:2]
+                masked = img[:mask_h, :mask_w][mask]
+                masked = alpha * masked + (1 - alpha) * np.array([255, 255, 255])
+                img[:mask_h, :mask_w][mask] = masked.astype(np.uint8)
+            cv2.imshow('image', img)
+            # mask = samples.mask[0].detach().cpu().numpy().astype(np.float32)
+            # cv2.imshow('mask', mask)
+            if cv2.waitKey(0) == 27:
+                exit()
+
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
