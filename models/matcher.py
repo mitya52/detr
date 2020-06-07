@@ -148,8 +148,13 @@ class KeypointsHungarianMatcher(nn.Module):
 
         # Compute the L1 cost between locations
         cost_location = cost_confidence.new_zeros((out_loc.size(0), tgt_loc.size(0)))
-        for idx, conf, loc in enumerate(zip(tgt_conf, tgt_loc)):
-            cost_location[:, idx] = torch.cdist(out_loc[conf > 0], loc[conf > 0], p=1)
+        for idx, (conf, loc) in enumerate(zip(tgt_conf, tgt_loc)):
+            num_keypoints = (conf > 0).sum()
+            assert num_keypoints > 0
+            dist = torch.cdist(
+                out_loc[:, conf > 0].flatten(1, 2),
+                loc[conf > 0].view(1, -1), p=1).flatten()
+            cost_location[:, idx] = dist / num_keypoints
 
         # Final cost matrix
         C = self.cost_class * cost_class + self.cost_confidence * cost_confidence + self.cost_location * cost_location
