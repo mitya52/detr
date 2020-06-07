@@ -239,7 +239,6 @@ class MetricLogger(object):
                         time=str(iter_time), data=str(data_time)))
                 if wandb and get_rank() == 0:
                     import wandb
-                    self.synchronize_between_processes()
                     wandb.log({
                         name: smoothed_value.median
                         for name, smoothed_value in self.meters.items()
