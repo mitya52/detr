@@ -166,4 +166,11 @@ class KeypointsHungarianMatcher(nn.Module):
 
 
 def build_matcher(args):
-    return HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
+    if args.keypoints:
+        return KeypointsHungarianMatcher(cost_class=args.set_cost_class,
+                                         cost_confidence=args.set_cost_conf,
+                                         cost_location=args.set_cost_loc)
+    else:
+        return HungarianMatcher(cost_class=args.set_cost_class,
+                                cost_bbox=args.set_cost_bbox,
+                                cost_giou=args.set_cost_giou)

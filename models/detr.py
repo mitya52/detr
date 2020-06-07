@@ -520,48 +520,76 @@ class MLP(nn.Module):
 
 
 def build(args):
-    num_classes = 20 if args.dataset_file != 'coco' else 91
-    if args.dataset_file == "coco_panoptic":
-        num_classes = 250
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
-
     transformer = build_transformer(args)
-
-    model = DETR(
-        backbone,
-        transformer,
-        num_classes=num_classes,
-        num_queries=args.num_queries,
-        aux_loss=args.aux_loss,
-    )
-    if args.masks:
-        model = DETRsegm(model)
     matcher = build_matcher(args)
-    weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
-    weight_dict['loss_giou'] = args.giou_loss_coef
-    if args.masks:
-        weight_dict["loss_mask"] = args.mask_loss_coef
-        weight_dict["loss_dice"] = args.dice_loss_coef
-    # TODO this is a hack
-    if args.aux_loss:
-        aux_weight_dict = {}
-        for i in range(args.dec_layers - 1):
-            aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
-        weight_dict.update(aux_weight_dict)
 
-    losses = ['labels', 'boxes', 'cardinality']
-    if args.masks:
-        losses += ["masks"]
-    criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-                             eos_coef=args.eos_coef, losses=losses)
-    criterion.to(device)
-    postprocessors = {'bbox': PostProcess()}
-    if args.masks:
-        postprocessors['segm'] = PostProcessSegm()
+    if args.keypoints:
+        model = POTR(
+            backbone,
+            transformer,
+            num_queries=args.num_queries,
+            aux_loss=args.aux_loss,
+        )
+
+        weight_dict = dict(
+            loss_ce=1,
+            loss_conf=args.conf_loss_coef,
+            loss_loc=args.loc_loss_coef)
+        # TODO this is a hack
+        if args.aux_loss:
+            aux_weight_dict = {}
+            for i in range(args.dec_layers - 1):
+                aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
+            weight_dict.update(aux_weight_dict)
+
+        losses = ['labels', 'keypoints', 'cardinality']
+        criterion = KeypointsSetCriterion(matcher=matcher, weight_dict=weight_dict,
+                                          eos_coef=args.eos_coef, losses=losses)
+
+        postprocessors = {'keypoints': KeypointsPostProcess()}
+    else:
+        num_classes = 20 if args.dataset_file != 'coco' else 91
         if args.dataset_file == "coco_panoptic":
-            is_thing_map = {i: i <= 90 for i in range(201)}
-            postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, True, threshold=0.85)
+            num_classes = 250
+
+        model = DETR(
+            backbone,
+            transformer,
+            num_classes=num_classes,
+            num_queries=args.num_queries,
+            aux_loss=args.aux_loss,
+        )
+
+        if args.masks:
+            model = DETRsegm(model)
+        weight_dict = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef}
+        weight_dict['loss_giou'] = args.giou_loss_coef
+        if args.masks:
+            weight_dict["loss_mask"] = args.mask_loss_coef
+            weight_dict["loss_dice"] = args.dice_loss_coef
+        # TODO this is a hack
+        if args.aux_loss:
+            aux_weight_dict = {}
+            for i in range(args.dec_layers - 1):
+                aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
+            weight_dict.update(aux_weight_dict)
+
+        losses = ['labels', 'boxes', 'cardinality']
+        if args.masks:
+            losses += ["masks"]
+        criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
+                                 eos_coef=args.eos_coef, losses=losses)
+
+        postprocessors = {'bbox': PostProcess()}
+        if args.masks:
+            postprocessors['segm'] = PostProcessSegm()
+            if args.dataset_file == "coco_panoptic":
+                is_thing_map = {i: i <= 90 for i in range(201)}
+                postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, True, threshold=0.85)
+
+    criterion.to(device)
 
     return model, criterion, postprocessors
