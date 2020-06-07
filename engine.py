@@ -160,7 +160,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     if coco_evaluator is not None:
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
-        if wandb:  # TODO(mitya52): check that this is not distributed case
+        if wandb and utils.get_rank() == 0:
             log_wandb(coco_evaluator)
     panoptic_res = None
     if panoptic_evaluator is not None:
