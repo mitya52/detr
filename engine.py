@@ -16,16 +16,16 @@ from datasets.panoptic_eval import PanopticEvaluator
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0, debug: bool = False):
+                    device: torch.device, epoch: int, max_norm: float = 0,
+                    debug: bool = False, wandb: bool = False, print_freq: int = 10):
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 10
 
-    for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+    for samples, targets in metric_logger.log_every(data_loader, print_freq, header, wandb):
         if debug:
             import cv2
             import numpy as np
@@ -94,7 +94,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, wandb: bool = False):
     model.eval()
     criterion.eval()
 
@@ -114,7 +114,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
 
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    for samples, targets in metric_logger.log_every(data_loader, 10, header, wandb=False):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -160,6 +160,8 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     if coco_evaluator is not None:
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
+        if wandb:
+            log_wandb(coco_evaluator)
     panoptic_res = None
     if panoptic_evaluator is not None:
         panoptic_res = panoptic_evaluator.summarize()
@@ -174,3 +176,27 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
     return stats, coco_evaluator
+
+
+def log_wandb(evaluator: CocoEvaluator):
+    import wandb
+
+    keypoints_metrics_names = [
+        'AP_50_95_all',
+        'AP_50_all',
+        'AP_75_all',
+        'AP_50_95_medium',
+        'AP_50_95_large',
+        'AR_50_95_all',
+        'AR_50_all',
+        'AR_75_all',
+        'AR_50_95_medium',
+        'AR_50_95_large',
+    ]
+
+    metrics = dict()
+    for iou_type, coco_eval in evaluator.coco_eval.items():
+        if iou_type == 'keypoints':
+            for name, value in zip(keypoints_metrics_names, coco_eval.stats):
+                metrics[f'{iou_type}_{name}'] = value
+    wandb.log(metrics)

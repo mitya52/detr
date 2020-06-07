@@ -29,6 +29,10 @@ def get_args_parser():
                         help='gradient clipping max norm')
     parser.add_argument('--debug', action='store_true',
                         help='visualize image and targets')
+    parser.add_argument('--wandb_project', type=str, default=None,
+                        help='wandb project name')
+    parser.add_argument('--log_every', type=int, default=10,
+                        help='print log frequency')
 
     # Model parameters
     parser.add_argument('--frozen_weights', type=str, default=None,
@@ -121,7 +125,9 @@ def main(args):
 
     if args.frozen_weights is not None:
         assert args.masks, "Frozen training is meant for segmentation only"
-    print(args)
+    if args.wandb_project:
+        import wandb
+        wandb.init(project=args.wandb_project)
 
     device = torch.device(args.device)
 
@@ -207,8 +213,8 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         train_stats = train_one_epoch(
-            model, criterion, data_loader_train, optimizer, device, epoch,
-            args.clip_max_norm, debug = args.debug)
+            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm,
+            debug=args.debug, wandb=bool(args.wandb_project), print_freq=args.log_every)
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
@@ -225,8 +231,8 @@ def main(args):
                 }, checkpoint_path)
 
         test_stats, coco_evaluator = evaluate(
-            model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
-        )
+            model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir,
+            wandb=bool(args.wandb_project))
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
