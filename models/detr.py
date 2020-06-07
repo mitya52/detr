@@ -71,6 +71,62 @@ class DETR(nn.Module):
         return out
 
 
+class POTR(nn.Module):
+    """ This is the POTR module that performs pose estimation """
+    def __init__(self, backbone, transformer, num_queries, num_keypoints: int = 17, aux_loss: bool = False):
+        """ Initializes the model.
+        Parameters:
+            backbone: torch module of the backbone to be used. See backbone.py
+            transformer: torch module of the transformer architecture. See transformer.py
+            num_queries: number of object queries, ie detection slot. This is the maximal number of objects
+                         DETR can detect in a single image. For COCO, we recommend 100 queries.
+            aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
+        """
+        super().__init__()
+        self.num_queries = num_queries
+        self.transformer = transformer
+        hidden_dim = transformer.d_model
+        self.class_embed = nn.Linear(hidden_dim, 1 + 1)
+        self.location_embed = MLP(hidden_dim, hidden_dim, num_keypoints * 2, 3)
+        self.confidence_embed = MLP(hidden_dim, hidden_dim, num_keypoints, 3)
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
+        self.backbone = backbone
+        self.aux_loss = aux_loss
+
+    def forward(self, samples: NestedTensor):
+        """ The forward expects a NestedTensor, which consists of:
+               - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
+               - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
+
+            It returns a dict with the following elements:
+               - "pred_logits": the classification logits (including no-object) for all queries.
+                                Shape= [batch_size x num_queries x (num_classes + 1)]
+               - "pred_location": TODO(mitya52).
+               - "pred_confidence": TODO(mitya52),
+               - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
+                                dictionnaries containing the two above keys for each decoder layer.
+        """
+        if not isinstance(samples, NestedTensor):
+            samples = NestedTensor.from_tensor_list(samples)
+        features, pos = self.backbone(samples)
+
+        src, mask = features[-1].decompose()
+        hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
+
+        outputs_class = self.class_embed(hs)
+        outputs_location = self.location_embed(hs).sigmoid()
+        outputs_confidence = self.confidence_embed(hs)
+        out = dict(pred_logits=outputs_class[-1],
+                   pred_location=outputs_location[-1],
+                   pred_confidence=outputs_confidence[-1])
+        if self.aux_loss:
+            out['aux_outputs'] = [
+                dict(pred_logits=a, pred_location=b, pred_confidence=c)
+                for a, b, c in zip(outputs_class[:-1], outputs_location[:-1], outputs_confidence[:-1])]
+        return out
+
+
 class SetCriterion(nn.Module):
     """ This class computes the loss for DETR.
     The process happens in two steps:
