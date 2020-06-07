@@ -328,6 +328,19 @@ class Normalize(object):
         return image, target
 
 
+class Collect(object):
+    def __init__(self, keys = None):
+        self.keys = keys
+
+    def __call__(self, image, target=None):
+        if self.keys:
+            target = target.copy()
+            del_keys = [key for key in target.keys() if key not in self.keys]
+            for key in del_keys:
+                del target[key]
+        return image, target
+
+
 class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms

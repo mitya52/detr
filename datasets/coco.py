@@ -137,6 +137,7 @@ def make_coco_transforms(image_set):
                     T.RandomResize(scales, max_size=1333),
                 ])
             ),
+            T.Collect(['labels', 'keypoints']),
             normalize,
         ])
 
