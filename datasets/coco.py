@@ -14,12 +14,16 @@ from pycocotools import mask as coco_mask
 import datasets.transforms as T
 
 
-# TODO(mitya52): may be we need to
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks, return_keypoints):
+    def __init__(self, img_folder, ann_file, transforms, return_masks, return_keypoints, filter_no_anns: bool = False):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks, return_keypoints)
+        if return_keypoints and filter_no_anns:
+            self.ids = list(set(
+                anno['image_id']
+                for anno in self.coco.anns.values()
+                if anno['num_keypoints'] > 0))
 
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
@@ -120,6 +124,7 @@ def make_coco_transforms(image_set):
     normalize = T.Compose([
         T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        # T.Normalize([0, 0, 0], [1, 1, 1]),
     ])
 
     scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
@@ -161,10 +166,12 @@ def build(image_set, args):
     }
 
     img_folder, ann_file = PATHS[image_set]
+    filter_no_anns = args.keypoints and image_set == 'train'
     dataset = CocoDetection(
         img_folder,
         ann_file,
         transforms=make_coco_transforms(image_set),
         return_masks=args.masks or args.keypoints,
-        return_keypoints=args.keypoints)
+        return_keypoints=args.keypoints,
+        filter_no_anns=filter_no_anns)
     return dataset
