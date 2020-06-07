@@ -468,6 +468,40 @@ class PostProcess(nn.Module):
         return results
 
 
+class KeypointsPostProcess(nn.Module):
+    """ This module converts the model's output into the format expected by the coco api"""
+    @torch.no_grad()
+    def forward(self, outputs, target_sizes):
+        """ Perform the computation
+        Parameters:
+            outputs: raw outputs of the model
+            target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
+                          For evaluation, this must be the original image size (before any data augmentation)
+                          For visualization, this should be the image size after data augment, but before padding
+        """
+        out_logits, out_location, out_confidence = \
+            outputs['pred_logits'], outputs['pred_location'], outputs['pred_confidence']
+
+        assert len(out_logits) == len(target_sizes)
+        assert target_sizes.shape[1] == 2
+
+        prob = F.softmax(out_logits, -1)
+        scores, labels = prob[..., :-1].max(-1)
+
+        # convert outputs to coco keypoints
+        out_location = out_location.view(out_location.size(0), -1, 2)
+        out_confidence = out_confidence.view(out_confidence.size(0), -1, 1)
+        # and from relative [0, 1] to absolute image coordinates
+        img_h, img_w = target_sizes.unbind(1)
+        scale_fct = torch.stack([img_w, img_h], dim=1)
+        out_location = out_location * scale_fct[:, None, None, :]
+        keypoints = torch.cat([out_location, out_confidence], dim=-1)
+
+        results = [{'scores': s, 'labels': l, 'keypoints': k} for s, l, k in zip(scores, labels, keypoints)]
+
+        return results
+
+
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
 
