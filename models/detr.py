@@ -116,7 +116,7 @@ class POTR(nn.Module):
 
         outputs_class = self.class_embed(hs)
         outputs_location = self.location_embed(hs).sigmoid()
-        outputs_confidence = self.confidence_embed(hs)
+        outputs_confidence = self.confidence_embed(hs).sigmoid()
         out = dict(pred_logits=outputs_class[-1],
                    pred_location=outputs_location[-1],
                    pred_confidence=outputs_confidence[-1])

@@ -320,6 +320,12 @@ class Normalize(object):
             boxes = box_xyxy_to_cxcywh(boxes)
             boxes = boxes / torch.tensor([w, h, w, h], dtype=torch.float32)
             target["boxes"] = boxes
+        if "keypoints" in target:
+            keypoints = target["keypoints"]
+            keypoints[..., :2] = keypoints[..., :2] / torch.tensor([w, h], dtype=torch.float32)
+            keypoints[..., 2] = torch.clamp(keypoints[..., 2], 0, 1)
+            target["keypoints"] = keypoints
+            print(keypoints)
         return image, target
 
 
