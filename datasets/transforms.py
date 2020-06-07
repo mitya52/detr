@@ -3,7 +3,6 @@
 Transforms and data augmentation for both image + bbox.
 """
 import random
-import numpy as np
 
 import PIL
 import torch
@@ -51,10 +50,12 @@ def crop(image, target, region):
         fields.append("keypoints")
 
     # remove elements for which the boxes or masks that have zero area
-    if "boxes" in target or "masks" in target:
+    if "boxes" in target or "masks" in target or "keypoints" in target:
         # favor boxes selection when defining which elements to keep
         # this is compatible with previous implementation
-        if "boxes" in target:
+        if "keypoints" in target:
+            keep = target["keypoints"][..., 2].sum(dim=-1) > 0
+        elif "boxes" in target:
             cropped_boxes = target['boxes'].reshape(-1, 2, 2)
             keep = torch.all(cropped_boxes[:, 1, :] > cropped_boxes[:, 0, :], dim=1)
         else:
@@ -193,7 +194,7 @@ def fill_ignore(image, target, color):
 
     image[:, ignore_mask] = color
 
-    # TODO(mitya52): remove keypoints under mask
+    # TODO(mitya52): remove keypoints under mask?
 
     for field in fields:
         target[field] = target[field][keep]

@@ -33,7 +33,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             img = samples.tensors[0].numpy().transpose((1, 2, 0))
             img = np.ascontiguousarray(img * 255, dtype=np.uint8)
             img_size = targets[0]['size']
-            print(targets[0].keys())
             for bbox in targets[0].get("boxes", []):
                 cx, cy, w, h = bbox.numpy()
                 cx, cy, w, h = map(int, (cx * img_size[1], cy * img_size[0], w * img_size[1], h * img_size[0]))
