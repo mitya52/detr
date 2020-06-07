@@ -125,7 +125,7 @@ def main(args):
 
     if args.frozen_weights is not None:
         assert args.masks, "Frozen training is meant for segmentation only"
-    if args.wandb_project:
+    if args.wandb_project and utils.get_rank() == 0:
         import wandb
         wandb.init(project=args.wandb_project)
 
