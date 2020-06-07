@@ -15,7 +15,9 @@ import datasets.transforms as T
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks, return_keypoints, filter_no_anns: bool = False):
+    def __init__(self, img_folder, ann_file, transforms,
+                 return_masks: bool = False, return_keypoints: bool = False,
+                 filter_no_anns: bool = False):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks, return_keypoints)
@@ -119,39 +121,57 @@ class ConvertCocoPolysToMask(object):
         return image, target
 
 
-def make_coco_transforms(image_set):
+def make_coco_transforms(image_set, keypoints: bool = False):
 
     normalize = T.Compose([
         T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        # T.Normalize([0, 0, 0], [1, 1, 1]),
     ])
 
     scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
     joint_pairs = [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14], [15, 16]]
 
     if image_set == 'train':
-        return T.Compose([
-            T.FillIgnore(),
-            T.RandomHorizontalFlip(joint_pairs=joint_pairs),
-            T.RandomSelect(
+        if keypoints:
+            transforms = [
+                T.FillIgnore(),
+                T.RandomHorizontalFlip(joint_pairs=joint_pairs),
                 T.RandomResize(scales, max_size=1333),
-                T.Compose([
-                    T.RandomResize([400, 500, 600]),
-                    T.RandomSizeCrop(384, 600),
+                # TODO(mitya52): we cannot clip standard clip because of
+                #  unused losses error with distributed. All transforms
+                #  must keep at least one keypoints target
+                T.Collect(['labels', 'keypoints']),
+                normalize,
+            ]
+        else:
+            transforms = [
+                T.RandomHorizontalFlip(joint_pairs=joint_pairs),
+                T.RandomSelect(
                     T.RandomResize(scales, max_size=1333),
-                ])
-            ),
-            T.Collect(['labels', 'keypoints']),
-            normalize,
-        ])
+                    T.Compose([
+                        T.RandomResize([400, 500, 600]),
+                        T.RandomSizeCrop(384, 600),
+                        T.RandomResize(scales, max_size=1333),
+                    ])
+                ),
+                normalize,
+            ]
+        return T.Compose(transforms)
 
     if image_set == 'val':
-        return T.Compose([
-            T.FillIgnore(),
-            T.RandomResize([800], max_size=1333),
-            normalize,
-        ])
+        if keypoints:
+            # TODO(mitya52): do not resize images, use padding and batch_size = 1
+            transforms = [
+                T.FillIgnore(),  # TODO(mitya52): we really need this transform for test?
+                T.RandomResize([800], max_size=1333),
+                normalize,
+            ]
+        else:
+            transforms = [
+                T.RandomResize([800], max_size=1333),
+                normalize,
+            ]
+        return T.Compose(transforms)
 
     raise ValueError(f'unknown {image_set}')
 
@@ -166,12 +186,18 @@ def build(image_set, args):
     }
 
     img_folder, ann_file = PATHS[image_set]
-    filter_no_anns = args.keypoints and image_set == 'train'
-    dataset = CocoDetection(
-        img_folder,
-        ann_file,
-        transforms=make_coco_transforms(image_set),
-        return_masks=args.masks or args.keypoints,
-        return_keypoints=args.keypoints,
-        filter_no_anns=filter_no_anns)
+    if args.keypoints:
+        dataset = CocoDetection(
+            img_folder,
+            ann_file,
+            transforms=make_coco_transforms(image_set, keypoints=True),
+            return_masks=True,  # NOTE: for FillIgnore transform
+            return_keypoints=True,
+            filter_no_anns=(image_set == 'train'))
+    else:
+        dataset = CocoDetection(
+            img_folder,
+            ann_file,
+            transforms=make_coco_transforms(image_set),
+            return_masks=args.masks)
     return dataset
