@@ -489,13 +489,15 @@ class KeypointsPostProcess(nn.Module):
         scores, labels = prob[..., :-1].max(-1)
 
         # convert outputs to coco keypoints
-        out_location = out_location.view(out_location.size(0), -1, 2)
-        out_confidence = out_confidence.view(out_confidence.size(0), -1, 1)
+        out_location = out_location.view(out_location.size(0), out_location.size(1), -1, 2)
+        out_confidence = out_confidence.view(out_confidence.size(0), out_confidence.size(1), -1, 1)
+
         # and from relative [0, 1] to absolute image coordinates
         img_h, img_w = target_sizes.unbind(1)
         scale_fct = torch.stack([img_w, img_h], dim=1)
         out_location = out_location * scale_fct[:, None, None, :]
         keypoints = torch.cat([out_location, out_confidence], dim=-1)
+        keypoints = keypoints.flatten(2, 3)  # flatten each pose keypoints
 
         results = [{'scores': s, 'labels': l, 'keypoints': k} for s, l, k in zip(scores, labels, keypoints)]
 
