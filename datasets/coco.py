@@ -140,7 +140,7 @@ def make_coco_transforms(image_set, keypoints: bool = False):
                 # TODO(mitya52): we cannot clip standard clip because of
                 #  unused losses error with distributed. All transforms
                 #  must keep at least one keypoints target
-                T.Collect(['labels', 'keypoints']),
+                T.Collect(['labels', 'keypoints', 'size']),
                 normalize,
             ]
         else:

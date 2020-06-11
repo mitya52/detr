@@ -40,7 +40,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             for keypoints in targets[0].get("keypoints", []):
                 for x, y, v in keypoints:
                     if v > 0:
-                        x, y = map(int, (x, y))
+                        x, y = map(int, (x * img_size[1], y * img_size[0]))
                         cv2.circle(img, (x, y), radius=3, color=(255, 255, 255), thickness=-1)
             for mask in targets[0].get("masks", []):
                 alpha = 0.5
