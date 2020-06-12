@@ -94,7 +94,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, wandb: bool = False):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir,
+             wandb: bool = False, debug: bool = False):
     model.eval()
     criterion.eval()
 
@@ -136,6 +137,36 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         if 'keypoints' in postprocessors.keys():
             results = postprocessors['keypoints'](outputs, orig_target_sizes)
+            if debug:
+                import cv2
+                import numpy as np
+
+                target_color = 0, 255, 0
+                result_color = 0, 0, 255
+
+                img = samples.tensors[0].cpu().numpy().transpose((1, 2, 0))
+                img = np.ascontiguousarray(img * 255, dtype=np.uint8)
+                targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+                img_size = targets[0]['size']
+                img_targets = {k: v.cpu().detach().numpy() for k, v in targets[0].items()}
+                for keypoints in img_targets["keypoints"]:
+                    for x, y, v in keypoints:
+                        if v > 0:
+                            x, y = map(int, (x * img_size[1], y * img_size[0]))
+                            cv2.circle(img, (x, y), radius=3, color=target_color, thickness=-1)
+                pose_threshold = 0
+                keypoint_threshold = 0
+                img_results = {k: v.cpu().detach().numpy() for k, v in results[0].items()}
+                for label, score, keypoints in zip(img_results['labels'], img_results['scores'], img_results['keypoints']):
+                    if label == 0 or score < pose_threshold:
+                        continue
+                    for x, y, v in keypoints:
+                        if v >= keypoint_threshold:
+                            x, y = map(int, (x * img_size[1], y * img_size[0]))
+                            cv2.circle(img, (x, y), radius=3, color=result_color, thickness=-1)
+                cv2.imshow('debug', img)
+                if cv2.waitKey(0) == 27:
+                    exit()
         else:
             results = postprocessors['bbox'](outputs, orig_target_sizes)
         if 'segm' in postprocessors.keys():
